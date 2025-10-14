@@ -4,7 +4,7 @@ This is the official repository of [TwiBot-22](https://twibot22.github.io/) @ Ne
 
 ### Introduction
 
-TwiBot-22 is the largest and most comprehensive Twitter bot detection benchmark to date. Specifically, [TwiBot-22](https://arxiv.org/abs/2206.04564) is designed to address the challenges of limited dataset scale, imcomplete graph structure, and low annotation quality in previous datasets. For more details, please refer to the [TwiBot-22 paper](https://arxiv.org/abs/2206.04564) and [statistics](descriptions/statistics.md).
+TwiBot-22 is the largest and most comprehensive Twitter bot detection benchmark to date. Specifically, [TwiBot-22](https://arxiv.org/abs/2206.04564) is designed to address the challenges of limited dataset scale, imcomplete graph structure, and low annotation quality in previous datasets. For more details, please refer to [TwiBot-22 paper](https://arxiv.org/abs/2206.04564) and [statistics](descriptions/statistics.md).
 ![compare](./pics/compare.png)
 
 ### Dataset Format
