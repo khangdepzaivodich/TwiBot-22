@@ -10,23 +10,24 @@ user, tweet = fast_merge(dataset="Twibot-20")
 
 # Extract user descriptions from the nested profile
 user_text = [
-    profile.get('description', None) if isinstance(profile, dict) else None
+    profile.get('description', None) if isinstance(profile, dict) else None 
     for profile in user['profile']
 ]
 
-# Extract tweets
-tweet_text = [text for text in tweet['tweet']]
+# Extract tweet texts
+tweet_text = [t for t in tweet['tweet']]
 
-# Load preprocessed tweets per user (.npy, not .pt)
-each_user_tweets = np.load('./processed_data/each_user_tweets.npy', allow_pickle=True)
-each_user_tweets = [list(tweets) for tweets in each_user_tweets]
+# ---------------- Load preprocessed tweets per user ----------------
+# each_user_tweets.npy is a dict: {user_index: list of tweet indices}
+each_user_tweets_dict = np.load('./processed_data/each_user_tweets.npy', allow_pickle=True).item()
+each_user_tweets = [each_user_tweets_dict[i] for i in range(len(each_user_tweets_dict))]
 
 # ---------------- Feature extraction pipeline ----------------
 feature_extract = pipeline(
     'feature-extraction',
     model='roberta-base',
     tokenizer='roberta-base',
-    device=3,  # change to your CUDA device ID
+    device=3,
     padding=True,
     truncation=True,
     max_length=50,
