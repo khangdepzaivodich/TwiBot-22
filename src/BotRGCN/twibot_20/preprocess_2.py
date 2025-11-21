@@ -9,8 +9,9 @@ import os
 user, tweet = fast_merge(dataset="Twibot-20")
 
 # Extract user descriptions from the nested profile
-user_text = [profile.get('description', None) for profile in user['profile']]
-tweet_text = [text for text in tweet.text]
+user_text = [profile.get('description', None) if isinstance(profile, dict) else None 
+             for profile in user['profile']]
+tweet_text = [text for text in tweet['tweet']]
 
 # Load preprocessed tweets per user
 each_user_tweets = torch.load('./processed_data/each_user_tweets.npy')
