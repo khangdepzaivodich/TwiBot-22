@@ -6,42 +6,40 @@ from transformers import pipeline
 import os
 
 # ---------------- Load dataset ----------------
+print("Loading dataset...")
 user, tweet = fast_merge(dataset="Twibot-20")
 
-# Extract user descriptions from the nested profile
-user_text = [
-    profile.get('description', None) if isinstance(profile, dict) else None
-    for profile in user['profile']
-]
+# Extract user descriptions
+user_text = [profile.get('description', None) if isinstance(profile, dict) else None 
+             for profile in user['profile']]
 
-# Extract tweets
+# Extract tweets text
 tweet_text = []
 for t in tweet['tweet']:
     if isinstance(t, str):
         tweet_text.append(t)
-    elif isinstance(t, list) and len(t) > 0:
-        tweet_text.append(str(t[0]))
     else:
         tweet_text.append(None)
 
-# Load each_user_tweets mapping
-each_user_tweets = np.load('./processed_data/each_user_tweets.npy', allow_pickle=True).item()
+# Load each_user_tweets
+print("Loading per-user tweet indices...")
+each_user_tweets_path = './processed_data/each_user_tweets.npy'
+if os.path.exists(each_user_tweets_path):
+    each_user_tweets = np.load(each_user_tweets_path, allow_pickle=True).item()
+    # Ensure we have a list for each user
+    each_user_tweets = [list(each_user_tweets.get(i, [])) for i in range(len(user))]
+else:
+    print("Error: each_user_tweets.npy not found. Run preprocess_1.py first.")
+    exit(1)
 
-# Convert each_user_tweets dict to list of lists
-max_uid = len(user)
-tweets_per_user = [[] for _ in range(max_uid)]
-for uid, t_list in each_user_tweets.items():
-    if isinstance(t_list, (list, np.ndarray)):
-        tweets_per_user[uid] = list(t_list)
-    else:
-        tweets_per_user[uid] = []
-
-# ---------------- Feature extraction pipeline ----------------
+# ---------------- Feature extraction ----------------
+print("Initializing feature extraction pipeline...")
+device = 0 if torch.cuda.is_available() else -1
 feature_extract = pipeline(
     'feature-extraction',
     model='roberta-base',
     tokenizer='roberta-base',
-    device=0,   # Change to 0 if using GPU, -1 for CPU
+    device=device,
     padding=True,
     truncation=True,
     max_length=50,
@@ -50,15 +48,15 @@ feature_extract = pipeline(
 
 # ---------------- User description embeddings ----------------
 def Des_embbeding():
-    print('Running user description embeddings')
+    print('Running user description embeddings...')
     path = "./processed_data/des_tensor.pt"
     if not os.path.exists(path):
         des_vec = []
         for each in tqdm(user_text):
-            try:
-                if not each or str(each).strip() == '':
-                    des_vec.append(torch.zeros(768))
-                else:
+            if each is None or str(each).strip() == '':
+                des_vec.append(torch.zeros(768))
+            else:
+                try:
                     feature = torch.Tensor(feature_extract(each))
                     if feature and len(feature) > 0 and len(feature[0]) > 0:
                         feature_tensor = feature[0][0]
@@ -68,63 +66,64 @@ def Des_embbeding():
                         des_vec.append(feature_tensor)
                     else:
                         des_vec.append(torch.zeros(768))
-            except Exception:
-                des_vec.append(torch.zeros(768))  # fallback
-        # Ensure we have the right length
+                except Exception:
+                    des_vec.append(torch.zeros(768))
+        # Safety check
         if len(des_vec) != len(user_text):
             des_vec = [torch.zeros(768) for _ in range(len(user_text))]
         des_tensor = torch.stack(des_vec, 0)
         torch.save(des_tensor, path)
     else:
         des_tensor = torch.load(path)
-    print('Finished user description embeddings')
+    print('Finished user description embeddings.')
     return des_tensor
 
 # ---------------- Tweets embeddings ----------------
 def tweets_embedding():
-    print('Running tweets embeddings')
+    print('Running tweets embeddings...')
     path = "./processed_data/tweets_tensor.pt"
     if not os.path.exists(path):
         tweets_list = []
-        for i, user_tweet_ids in enumerate(tqdm(tweets_per_user)):
-            if len(user_tweet_ids) == 0:
-                tweets_list.append(torch.zeros(768))
+        for i in tqdm(range(len(each_user_tweets))):
+            user_tweets = each_user_tweets[i]
+            if len(user_tweets) == 0:
+                total_each_person_tweets = torch.zeros(768)
             else:
                 total_each_person_tweets = None
-                for j, tid in enumerate(user_tweet_ids):
-                    if j == 20:  # Max 20 tweets per user
+                for j, tweet_idx in enumerate(user_tweets):
+                    if j == 20:  # limit to first 20 tweets per user
                         break
-                    each_tweet = tweet_text[tid] if tid < len(tweet_text) else None
-                    try:
-                        if not each_tweet:
-                            total_word_tensor = torch.zeros(768)
-                        else:
-                            feature = torch.Tensor(feature_extract(each_tweet))
-                            if feature and len(feature) > 0 and len(feature[0]) > 0:
-                                total_word_tensor = feature[0][0]
-                                for tensor in feature[0][1:]:
+                    each_tweet = tweet_text[tweet_idx] if tweet_idx < len(tweet_text) else None
+                    if each_tweet is None:
+                        total_word_tensor = torch.zeros(768)
+                    else:
+                        try:
+                            each_tweet_tensor = torch.tensor(feature_extract(each_tweet))
+                            if each_tweet_tensor and len(each_tweet_tensor) > 0 and len(each_tweet_tensor[0]) > 0:
+                                total_word_tensor = each_tweet_tensor[0][0]
+                                for tensor in each_tweet_tensor[0][1:]:
                                     total_word_tensor += tensor
-                                total_word_tensor /= feature.shape[1]
+                                total_word_tensor /= each_tweet_tensor.shape[1]
                             else:
                                 total_word_tensor = torch.zeros(768)
-                    except Exception:
-                        total_word_tensor = torch.zeros(768)
+                        except Exception:
+                            total_word_tensor = torch.zeros(768)
 
                     if total_each_person_tweets is None:
                         total_each_person_tweets = total_word_tensor
                     else:
                         total_each_person_tweets += total_word_tensor
 
-                total_each_person_tweets /= min(len(user_tweet_ids), 20)
-                tweets_list.append(total_each_person_tweets)
+                total_each_person_tweets /= min(len(user_tweets), 20)
+            tweets_list.append(total_each_person_tweets)
 
         tweet_tensor = torch.stack(tweets_list)
         torch.save(tweet_tensor, path)
     else:
         tweet_tensor = torch.load(path)
-    print('Finished tweets embeddings')
+    print('Finished tweets embeddings.')
     return tweet_tensor
 
 # ---------------- Run embeddings ----------------
-Des_embbeding()
-tweets_embedding()
+des_tensor = Des_embbeding()
+tweet_tensor = tweets_embedding()
