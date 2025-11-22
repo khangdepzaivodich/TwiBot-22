@@ -7,12 +7,11 @@ from dataset_tool import fast_merge, df_to_mask
 import os
 
 print('Loading raw data')
-node = pd.read_json("../datasets/Twibot-20/node.json")
 edge = pd.read_csv("../datasets/Twibot-20/edge.csv")
 label = pd.read_csv("../datasets/Twibot-20/label.csv")
 split = pd.read_csv("../datasets/Twibot-20/split.csv")
-print('Processing raw data')
 
+print('Processing raw data')
 user, tweet = fast_merge(dataset='Twibot-20')
 path = 'processed_data/'
 
@@ -21,7 +20,7 @@ if not os.path.exists(path):
 
 # ---------------- Labels ----------------
 print('Extracting labels and splits')
-label_list = [0 if x == 'human' else 1 for x in label['label']]
+label_list = label['label']
 label_tensor = torch.tensor(label_list, dtype=torch.long)
 torch.save(label_tensor, os.path.join(path,'label.pt'))
 
@@ -111,14 +110,14 @@ torch.save(cat_properties_tensor, os.path.join(path,'cat_properties_tensor.pt'))
 
 # ---------------- Each user tweets ----------------
 print('Extracting each_user_tweets')
-
 dict_user_tweets = {}
 
 for i, u in user.iterrows():
-    tweets = u.get("tweet", [])
+    tweets = u.get("tweets", [])
     if not isinstance(tweets, list):
         tweets = []
     dict_user_tweets[i] = tweets
 
 torch.save(dict_user_tweets, os.path.join(path, 'each_user_tweets.pt'))
 
+print("Preprocessing complete!")

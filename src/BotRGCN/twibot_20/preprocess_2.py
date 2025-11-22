@@ -24,8 +24,8 @@ if len(user_text) == 0:
 tweet_text = []
 
 # "tweet" column contains LISTS of strings
-if "tweet" in tweet.columns:
-    for t in tweet["tweet"]:
+if "text" in tweet.columns:
+    for t in tweet["text"]:
         if isinstance(t, list):
             tweet_text.extend(t)        # flatten tweet list
         else:
@@ -112,36 +112,27 @@ def tweets_embedding():
 
     tweet_vecs = []
 
-    for user_tweet_indices in tqdm(each_user_tweets):
-        if len(user_tweet_indices) == 0:
+    for user_tweets in tqdm(each_user_tweets):
+        if len(user_tweets) == 0:
             tweet_vecs.append(torch.zeros(768))
             continue
 
         total = torch.zeros(768)
         count = 0
 
-        for idx in user_tweet_indices:
-            if idx < len(tweet_text):
-                text = tweet_text[idx]
-            else:
-                text = None
-
+        for text in user_tweets:
             if text is None or str(text).strip() == "":
                 vec = torch.zeros(768)
             else:
-                vec = fe(text)
+                vec = fe(text)  # your feature extraction function
 
             total += vec
             count += 1
 
-        if count == 0:
-            tweet_vecs.append(torch.zeros(768))
-        else:
-            tweet_vecs.append(total / count)
+        # Average embedding per user
+        tweet_vecs.append(total / count if count > 0 else torch.zeros(768))
 
-    if len(tweet_vecs) == 0:
-        tweet_vecs = [torch.zeros(768)]
-
+    # Convert to tensor and save
     tweet_tensor = torch.stack(tweet_vecs, dim=0)
     torch.save(tweet_tensor, path)
     print("Finished tweets embeddings.")
