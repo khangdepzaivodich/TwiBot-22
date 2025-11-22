@@ -111,8 +111,6 @@ def tweets_embedding():
         total_each_person_tweets = torch.zeros(768)
         count = 0
         for j, tweet_idx in enumerate(user_tweets):
-            if j >= 20:  # limit first 20 tweets per user
-                break
             each_tweet = tweet_text[tweet_idx] if tweet_idx < len(tweet_text) else None
             if each_tweet is None or str(each_tweet).strip() == '':
                 total_each_person_tweets += torch.zeros(768)
