@@ -9,138 +9,146 @@ import os
 print("Loading dataset...")
 user, tweet = fast_merge(dataset="Twibot-20")
 
-# Extract user descriptions safely
+# ---------------- Description extraction ----------------
 user_text = []
-if 'profile' in user.columns:
-    for profile in user['profile']:
-        if isinstance(profile, dict):
-            desc = profile.get('description', None)
-            user_text.append(desc if desc is not None else None)
-        else:
-            user_text.append(None)
-else:
-    # fallback if profile column missing
-    user_text = [None] * len(user)
+for profile in user.get("profile", []):
+    if isinstance(profile, dict):
+        user_text.append(profile.get("description", None))
+    else:
+        user_text.append(None)
 
-# fallback: ensure user_text is not empty
 if len(user_text) == 0:
     user_text = [None]
 
-# Extract tweets safely
+# ---------------- Tweet extraction ----------------
 tweet_text = []
-if 'tweet' in tweet.columns:
-    for t in tweet['tweet']:
-        tweet_text.append(t if isinstance(t, str) else None)
+
+# "tweet" column contains LISTS of strings
+if "tweet" in tweet.columns:
+    for t in tweet["tweet"]:
+        if isinstance(t, list):
+            tweet_text.extend(t)        # flatten tweet list
+        else:
+            tweet_text.append(None)
 else:
     tweet_text = []
 
-# Load each_user_tweets
+print(f"Total extracted tweet texts: {len(tweet_text)}")
+
+# ---------------- Load each_user_tweets (PT FILE!!) ----------------
 print("Loading per-user tweet indices...")
-each_user_tweets_path = './processed_data/each_user_tweets.npy'
+each_user_tweets_path = './processed_data/each_user_tweets.pt'
+
 if os.path.exists(each_user_tweets_path):
-    each_user_tweets = np.load(each_user_tweets_path, allow_pickle=True).item()
-    # Ensure a list for each user
-    each_user_tweets = [list(each_user_tweets.get(i, [])) for i in range(len(user))]
+    each_user_tweets = torch.load(each_user_tweets_path)
 else:
-    print("Error: each_user_tweets.npy not found. Run preprocess_1.py first.")
+    print("Error: each_user_tweets.pt not found. Run preprocess_1.py first.")
     exit(1)
 
-# ---------------- Feature extraction ----------------
-print("Initializing feature extraction pipeline...")
+# Guarantee correct structure
+safe_user_tweets = []
+for i in range(len(user)):
+    safe_user_tweets.append(list(each_user_tweets.get(i, [])))
+each_user_tweets = safe_user_tweets
+
+
+# ---------------- Feature extraction pipeline ----------------
+print("Initializing embedding model...")
 device = 0 if torch.cuda.is_available() else -1
 feature_extract = pipeline(
-    'feature-extraction',
-    model='roberta-base',
-    tokenizer='roberta-base',
+    "feature-extraction",
+    model="roberta-base",
+    tokenizer="roberta-base",
     device=device,
     padding=True,
     truncation=True,
-    max_length=50,
-    add_special_tokens=True
+    max_length=50
 )
+
+def fe(text):
+    """Safe feature extraction"""
+    try:
+        out = feature_extract(text)
+        if out and len(out[0]) > 0:
+            return torch.tensor(out[0]).mean(dim=0)
+    except:
+        pass
+    return torch.zeros(768)
+
 
 # ---------------- User description embeddings ----------------
 def Des_embbeding():
-    print('Running user description embeddings...')
+    print("Running user description embeddings...")
     path = "./processed_data/des_tensor.pt"
+
     if os.path.exists(path):
-        des_tensor = torch.load(path)
-        print('Loaded existing user description embeddings.')
-        return des_tensor
+        print("Loaded existing user description embeddings.")
+        return torch.load(path)
 
     des_vec = []
-    for each in tqdm(user_text):
-        if each is None or str(each).strip() == '':
+    for text in tqdm(user_text):
+        if text is None or str(text).strip() == "":
             des_vec.append(torch.zeros(768))
         else:
-            try:
-                feature = torch.tensor(feature_extract(each))
-                if feature is not None and len(feature) > 0 and len(feature[0]) > 0:
-                    # mean over tokens
-                    token_mean = feature[0].mean(dim=0)
-                    des_vec.append(token_mean)
-                else:
-                    des_vec.append(torch.zeros(768))
-            except Exception:
-                des_vec.append(torch.zeros(768))
+            des_vec.append(fe(text))
 
-    # fallback safety
     if len(des_vec) == 0:
         des_vec = [torch.zeros(768)]
 
-    des_tensor = torch.stack(des_vec, 0)
+    des_tensor = torch.stack(des_vec, dim=0)
     torch.save(des_tensor, path)
-    print('Finished user description embeddings.')
+    print("Finished user description embeddings.")
     return des_tensor
+
 
 # ---------------- Tweets embeddings ----------------
 def tweets_embedding():
-    print('Running tweets embeddings...')
+    print("Running tweets embeddings...")
     path = "./processed_data/tweets_tensor.pt"
-    if os.path.exists(path):
-        tweet_tensor = torch.load(path)
-        print('Loaded existing tweets embeddings.')
-        return tweet_tensor
 
-    tweets_list = []
-    for user_tweets in tqdm(each_user_tweets):
-        if len(user_tweets) == 0:
-            tweets_list.append(torch.zeros(768))
+    if os.path.exists(path):
+        print("Loaded existing tweets embeddings.")
+        return torch.load(path)
+
+    tweet_vecs = []
+
+    for user_tweet_indices in tqdm(each_user_tweets):
+        if len(user_tweet_indices) == 0:
+            tweet_vecs.append(torch.zeros(768))
             continue
 
-        total_each_person_tweets = torch.zeros(768)
+        total = torch.zeros(768)
         count = 0
-        for j, tweet_idx in enumerate(user_tweets):
-            each_tweet = tweet_text[tweet_idx] if tweet_idx < len(tweet_text) else None
-            if each_tweet is None or str(each_tweet).strip() == '':
-                total_each_person_tweets += torch.zeros(768)
+
+        for idx in user_tweet_indices:
+            if idx < len(tweet_text):
+                text = tweet_text[idx]
             else:
-                try:
-                    tweet_tensor = torch.tensor(feature_extract(each_tweet))
-                    if tweet_tensor is not None and len(tweet_tensor) > 0 and len(tweet_tensor[0]) > 0:
-                        token_mean = tweet_tensor[0].mean(dim=0)
-                        total_each_person_tweets += token_mean
-                    else:
-                        total_each_person_tweets += torch.zeros(768)
-                except Exception:
-                    total_each_person_tweets += torch.zeros(768)
+                text = None
+
+            if text is None or str(text).strip() == "":
+                vec = torch.zeros(768)
+            else:
+                vec = fe(text)
+
+            total += vec
             count += 1
 
-        # avoid division by zero
-        if count > 0:
-            total_each_person_tweets /= count
-        tweets_list.append(total_each_person_tweets)
+        if count == 0:
+            tweet_vecs.append(torch.zeros(768))
+        else:
+            tweet_vecs.append(total / count)
 
-    # fallback safety
-    if len(tweets_list) == 0:
-        tweets_list = [torch.zeros(768)]
+    if len(tweet_vecs) == 0:
+        tweet_vecs = [torch.zeros(768)]
 
-    tweet_tensor = torch.stack(tweets_list, 0)
+    tweet_tensor = torch.stack(tweet_vecs, dim=0)
     torch.save(tweet_tensor, path)
-    print('Finished tweets embeddings.')
+    print("Finished tweets embeddings.")
     return tweet_tensor
 
-# ---------------- Run embeddings ----------------
+
+# ---------------- Run everything ----------------
 des_tensor = Des_embbeding()
 tweet_tensor = tweets_embedding()
 print("All embeddings generated successfully!")
