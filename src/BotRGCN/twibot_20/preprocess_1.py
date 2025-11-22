@@ -111,14 +111,14 @@ torch.save(cat_properties_tensor, os.path.join(path,'cat_properties_tensor.pt'))
 
 # ---------------- Each user tweets ----------------
 print('Extracting each_user_tweets')
-edge_post = edge[edge.relation == 'post']
-dict_user_tweets = {i: [] for i in range(len(user))}
 
-for i in tqdm(range(len(edge_post))):
-    src_idx = uid_to_user_index.get(edge_post.iloc[i]['source_id'])
-    tgt_idx = tid_to_tweet_index.get(edge_post.iloc[i]['target_id'])
-    if src_idx is not None and tgt_idx is not None:
-        dict_user_tweets[src_idx].append(tgt_idx)
+dict_user_tweets = {}
 
-# Save as torch file to avoid np.load issues
-torch.save(dict_user_tweets, os.path.join(path,'each_user_tweets.pt'))
+for i, u in user.iterrows():
+    tweets = u.get("tweet", [])
+    if not isinstance(tweets, list):
+        tweets = []
+    dict_user_tweets[i] = tweets
+
+torch.save(dict_user_tweets, os.path.join(path, 'each_user_tweets.pt'))
+
